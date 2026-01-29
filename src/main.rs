@@ -27,7 +27,6 @@ enum Commands {
     Pull {},
     /// Git pull + switch [-c] <name> [+ push]
     Feature {
-        #[arg(short, long)]
         name: String,
     },
 
@@ -64,6 +63,12 @@ enum Commands {
         #[arg(short, long, default_value = "origin")]
         name: String,
     },
+    /// Find and manage conflicts create by pulls
+    Resolve {
+        /// Once you have manually merged the .theirs files, this flag will delete them
+        #[arg(long, default_value_t = false)]
+        cleanup: bool,
+    },
 }
 
 fn main() {
@@ -82,7 +87,10 @@ fn run(cli: Cli) -> Result<(), Error> {
     let repo = Repository::open(&path_str)?;
 
     match cli.command {
-        Commands::Save { .. } | Commands::Creds { .. } => {
+        Commands::Feature { .. }
+        | Commands::Save { .. }
+        | Commands::Creds { .. }
+        | Commands::Resolve { .. } => {
             // These commands are allowed to run in a dirty repo
         }
         _ => {
@@ -217,6 +225,9 @@ fn run(cli: Cli) -> Result<(), Error> {
                 let branch_name = head.shorthand().unwrap_or("HEAD");
                 push(&repo, "origin", branch_name)?;
             }
+        }
+        Commands::Resolve { cleanup } => {
+            resolve(&repo, cleanup)?;
         }
     };
 
