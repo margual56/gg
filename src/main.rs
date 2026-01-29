@@ -23,6 +23,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    Push {},
+    Pull {},
     /// Git pull + switch [-c] <name> [+ push]
     Feature {
         #[arg(short, long)]
@@ -94,6 +96,16 @@ fn run(cli: Cli) -> Result<(), Error> {
     };
 
     match cli.command {
+        Commands::Push {} => {
+            println!("--- Pushing ---");
+            let head = repo.head()?;
+            let branch_name = head.shorthand().unwrap_or("HEAD");
+            push(&repo, "origin", branch_name)?;
+        }
+        Commands::Pull {} => {
+            println!("--- Pulling latest changes ---");
+            pull(&repo, "origin", "HEAD")?;
+        }
         Commands::Feature { name } => {
             println!("--- Syncing current branch ---");
             pull(&repo, "origin", "HEAD")?;
@@ -199,6 +211,11 @@ fn run(cli: Cli) -> Result<(), Error> {
             if let Err(e) = sync_unrelated_histories(&repo, &name) {
                 eprintln!("--- Sync Note: {} ---", e);
                 // We don't exit(1) here because the remote URL is still set successfully
+            } else {
+                println!("--- Pushing ---");
+                let head = repo.head()?;
+                let branch_name = head.shorthand().unwrap_or("HEAD");
+                push(&repo, "origin", branch_name)?;
             }
         }
     };
