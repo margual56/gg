@@ -33,6 +33,9 @@ enum Commands {
         base: Option<String>,
     },
 
+    /// List all branches
+    Features {},
+
     /// Git pull + commit + push
     Save {
         #[arg(short, long)]
@@ -84,7 +87,10 @@ fn run(cli: Cli) -> Result<(), Error> {
     let repo = Repository::open(&path_str)?;
 
     match cli.command {
-        Commands::Feature { .. } | Commands::Save { .. } | Commands::Creds { .. } => {
+        Commands::Feature { .. }
+        | Commands::Features { .. }
+        | Commands::Save { .. }
+        | Commands::Creds { .. } => {
             // These commands are allowed to run in a dirty repo
         }
         _ => {
@@ -107,6 +113,13 @@ fn run(cli: Cli) -> Result<(), Error> {
         Commands::Pull {} => {
             println!("--- Pulling latest changes ---");
             pull(&repo, "origin", "HEAD")?;
+        }
+        Commands::Features {} => {
+            let branches = repo.branches(Some(git2::BranchType::Local))?;
+            for b in branches {
+                let (branch, _) = b?;
+                println!("{}", branch.name()?.unwrap_or("HEAD"));
+            }
         }
         Commands::Feature { name, base } => {
             // 1. Determine the base commit for the new branch
