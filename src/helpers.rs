@@ -109,3 +109,31 @@ pub fn configure_git(
 
     Ok(())
 }
+
+pub fn setup_remote(repo: &Repository, name: &str, url: &str) -> Result<(), Error> {
+    // Check if the remote already exists
+    match repo.find_remote(name) {
+        Ok(_) => {
+            // If it exists, we update the URL
+            repo.remote_set_url(name, url)?;
+        }
+        Err(_) => {
+            // If it doesn't exist, we create it
+            repo.remote(name, url)?;
+        }
+    }
+    Ok(())
+}
+
+pub fn is_dirty(repo: &Repository) -> Result<bool, Error> {
+    let mut status_options = git2::StatusOptions::new();
+    // We include untracked files because they can cause conflicts during
+    // branch switches or rebases.
+    status_options.include_untracked(true);
+    status_options.recurse_untracked_dirs(true);
+
+    let statuses = repo.statuses(Some(&mut status_options))?;
+
+    // If statuses is not empty, the repo is "dirty"
+    Ok(!statuses.is_empty())
+}

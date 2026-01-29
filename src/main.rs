@@ -53,6 +53,15 @@ enum Commands {
         #[arg(short, long)]
         global: bool,
     },
+    /// Set or update a remote URL (defaults to origin)
+    Remote {
+        /// The URL of the remote (e.g., git@github.com:user/repo.git)
+        url: String,
+
+        /// The name of the remote
+        #[arg(short, long, default_value = "origin")]
+        name: String,
+    },
 }
 
 fn main() {
@@ -69,6 +78,20 @@ fn main() {
 fn run(cli: Cli) -> Result<(), Error> {
     let path_str = cli.path.unwrap_or_else(|| String::from("."));
     let repo = Repository::open(&path_str)?;
+
+    match cli.command {
+        Commands::Save { .. } | Commands::Creds { .. } => {
+            // These commands are allowed to run in a dirty repo
+        }
+        _ => {
+            // All other commands (Feature, Done, Remote) require a clean state
+            if is_dirty(&repo)? {
+                eprintln!("Error: You have unstaged changes or untracked files.");
+                eprintln!("Please 'Save' your work or stash your changes before proceeding.");
+                std::process::exit(1);
+            }
+        }
+    };
 
     match cli.command {
         Commands::Feature { name } => {
@@ -160,6 +183,21 @@ fn run(cli: Cli) -> Result<(), Error> {
             configure_git(&repo, &name, &email, global)?;
             let scope = if global { "globally" } else { "locally" };
             println!("--- Configured {} as {} <{}> ---", scope, name, email);
+        }
+        Commands::Remote { url, name } => {
+            setup_remote(&repo, &name, &url)?;
+            println!("--- Remote '{}' set to {} ---", name, url);
+
+            println!("--- Syncing with remote ---");
+            if let Err(e) = sync_remote(&repo, &name) {
+                println!("Note: Linked remote, but couldn't sync histories: {}", e);
+                println!("You may need to manual merge if histories are unrelated.");
+            } else {
+                println!(
+                    "--- Successfully linked and synced local branch to {}/HEAD ---",
+                    name
+                );
+            }
         }
     };
 

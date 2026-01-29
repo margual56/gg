@@ -99,3 +99,54 @@ pub fn pull(repo: &Repository, remote_name: &str, branch_name: &str) -> Result<(
 
     Ok(())
 }
+
+pub fn sync_remote(repo: &Repository, remote_name: &str) -> Result<(), Error> {
+    // 1. Fetch the remote to see what's there
+    let mut remote = repo.find_remote(remote_name)?;
+    let mut fetch_opts = git2::FetchOptions::new();
+    fetch_opts.remote_callbacks(create_callbacks());
+    remote.fetch(
+        &["+refs/heads/*:refs/remotes/origin/*"],
+        Some(&mut fetch_opts),
+        None,
+    )?;
+
+    // 2. Identify current local branch
+    let head = repo.head()?;
+    let local_branch_name = head.shorthand().unwrap_or("main");
+    let mut local_branch = repo.find_branch(local_branch_name, git2::BranchType::Local)?;
+
+    // 3. Try to find the corresponding remote branch (e.g., origin/main)
+    let remote_branch_name = format!("{}/{}", remote_name, local_branch_name);
+
+    // 4. Set the Upstream (The "weird shit" fix)
+    // This links the local branch to the remote so `git pull` works without args later
+    local_branch.set_upstream(Some(&remote_branch_name))?;
+
+    // 5. If we have a remote branch, try a safe merge/fast-forward
+    let remote_ref_name = format!("refs/remotes/{}", remote_branch_name);
+    if let Ok(remote_ref) = repo.find_reference(&remote_ref_name) {
+        let fetch_commit = repo.reference_to_annotated_commit(&remote_ref)?;
+        let (analysis, _) = repo.merge_analysis(&[&fetch_commit])?;
+
+        if analysis.is_fast_forward() {
+            // If local is behind, just catch up
+            let log_message = format!("Fast-forward to {}", remote_branch_name);
+            local_branch
+                .get_mut()
+                .set_target(fetch_commit.id(), &log_message)?;
+            repo.set_head(local_branch.get().name().unwrap())?;
+            repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force()))?;
+        } else if analysis.is_up_to_date() {
+            // Already synced
+        } else {
+            // This is the "Unrelated Histories" or "Diverged" case.
+            // For safety, we notify the user rather than forcing a destructive rebase.
+            return Err(Error::from_str(
+                "Remote has conflicting commits. Use 'Save' to commit local work first.",
+            ));
+        }
+    }
+
+    Ok(())
+}
