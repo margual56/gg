@@ -185,18 +185,20 @@ fn run(cli: Cli) -> Result<(), Error> {
             println!("--- Configured {} as {} <{}> ---", scope, name, email);
         }
         Commands::Remote { url, name } => {
-            setup_remote(&repo, &name, &url)?;
+            // 1. Set or Update URL
+            match repo.find_remote(&name) {
+                Ok(_) => repo.remote_set_url(&name, &url)?,
+                Err(_) => {
+                    repo.remote(&name, &url)?;
+                }
+            }
             println!("--- Remote '{}' set to {} ---", name, url);
 
+            // 2. Perform the "weird shit" sync automatically
             println!("--- Syncing with remote ---");
-            if let Err(e) = sync_remote(&repo, &name) {
-                println!("Note: Linked remote, but couldn't sync histories: {}", e);
-                println!("You may need to manual merge if histories are unrelated.");
-            } else {
-                println!(
-                    "--- Successfully linked and synced local branch to {}/HEAD ---",
-                    name
-                );
+            if let Err(e) = sync_unrelated_histories(&repo, &name) {
+                eprintln!("--- Sync Note: {} ---", e);
+                // We don't exit(1) here because the remote URL is still set successfully
             }
         }
     };
