@@ -2,8 +2,6 @@
 
 **gg** is a high-level Git workflow automation tool written in Rust. It’s designed for developers who want the power of Git without the cognitive overhead of managing rebases, upstream tracking, or conventional commit formatting manually.
 
-
-
 ## ✨ Features
 
 - **Intuitive Remotes**: `gg remote <url>` doesn't just set a string; it fetches, tracks, and automatically rebases unrelated histories (perfect for syncing local-first projects with new GitHub repos).
@@ -13,6 +11,36 @@
     - `feature`: Syncs main, branches out, and sets up tracking in one go.
     - `done`: Merges, cleans up, and returns you to safety.
 - **Smart Auth**: Transparently handles SSH Agents, disk-based SSH keys (`RSA`, `ED25519`), and HTTPS Credential Helpers.
+
+## Workflow
+```mermaid
+graph TD
+    Start((<b>Start</b>)) --> Config["<b>gg config</b><br/>Set identity"]
+    Config --> Remote["<b>gg remote</b><br/>Link & Sync history"]
+    
+    Remote --> Main[<b>Main Branch</b>]
+    
+    Main --> Feature["<b>gg feature</b><br/>Branch out"]
+    
+    Feature --> Code[<i>Edit Files</i>]
+    
+    Code --> Save["<b>gg save</b><br/>Auto-commit & Push"]
+    
+    Save -- "Still working?" --> Code
+    Save -- "Finished?" --> Done["<b>gg done</b><br/>Merge & Clean up"]
+    
+    Done --> Main
+
+    %% Error Handling
+    Save -. "Conflict" .-> Fix[<i>Manual Fix</i>]
+    Fix -. "Retry" .-> Save
+
+    style Config fill:#f5f5f5,stroke:#333
+    style Remote fill:#f5f5f5,stroke:#333
+    style Save fill:#bbf,stroke:#333
+    style Done fill:#bfb,stroke:#333
+    style Fix fill:#f66,stroke:#333
+```
 
 ## 🚀 Quick Start
 
