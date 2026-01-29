@@ -110,6 +110,7 @@ pub fn sync_remote(repo: &Repository, remote_name: &str) -> Result<(), Error> {
         Some(&mut fetch_opts),
         None,
     )?;
+    println!();
 
     // 2. Identify current local branch
     let head = repo.head()?;

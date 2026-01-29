@@ -1,4 +1,5 @@
 use git2::{Cred, Error, RemoteCallbacks, Repository};
+use std::io::Write;
 
 pub fn has_remote(repo: &Repository, name: &str) -> bool {
     repo.find_remote(name).is_ok()
@@ -84,9 +85,35 @@ pub fn generate_conventional_message(repo: &Repository) -> Result<String, git2::
 /// Creates remote callbacks for SSH/Credential handling
 pub fn create_callbacks() -> RemoteCallbacks<'static> {
     let mut callbacks = RemoteCallbacks::new();
+
+    // Handle SSH Key Authentication
     callbacks.credentials(|_url, username_from_url, _allowed_types| {
-        Cred::ssh_key_from_agent(username_from_url.unwrap_or("git"))
+        let user = username_from_url.unwrap_or("git");
+        println!("--- Authenticating as '{}' ---", user);
+        Cred::ssh_key_from_agent(user)
     });
+
+    // Handle Host Key Verification (The "Hang" Fix)
+    callbacks.certificate_check(|_cert, _host| {
+        // FIXME: In a production tool, you'd verify the host against known_hosts.
+        // Returning true tells libgit2 to trust the host and proceed.
+        Ok(git2::CertificateCheckStatus::CertificateOk)
+    });
+
+    // Show Progress (Visual feedback)
+    callbacks.transfer_progress(|stats| {
+        if stats.received_objects() > 0 {
+            print!(
+                "\rFetching: {}/{} objects ({})",
+                stats.received_objects(),
+                stats.total_objects(),
+                stats.indexed_objects()
+            );
+            let _ = std::io::stdout().flush();
+        }
+        true
+    });
+
     callbacks
 }
 
