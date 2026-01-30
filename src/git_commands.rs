@@ -6,6 +6,7 @@ use crate::helpers::{create_callbacks, has_remote};
 
 pub fn commit_all(repo: &Repository, message: &str) -> Result<(), git2::Error> {
     let mut index = repo.index()?;
+    index.add_all(["."].iter(), git2::IndexAddOption::DEFAULT, None)?;
     let oid = index.write_tree()?;
     let tree = repo.find_tree(oid)?;
     let signature = repo.signature()?;
