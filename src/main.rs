@@ -3,8 +3,6 @@ mod helpers;
 
 use clap::{Parser, Subcommand};
 use git2::{Error, Repository};
-use owo_colors::OwoColorize;
-use std::io::Write;
 
 use git_commands::*;
 use helpers::*;
@@ -111,16 +109,14 @@ fn run(cli: Cli) -> Result<(), Error> {
 
     match cli.command {
         Commands::Push {} => {
-            print!("Pushing... ");
-            let head = repo.head()?;
-            let branch_name = head.shorthand().unwrap_or("HEAD");
-            push(&repo, "origin", branch_name)?;
-            println!("{}", "Done".green());
+            show_progress("Pushing", || {
+                let head = repo.head()?;
+                let branch_name = head.shorthand().unwrap_or("HEAD");
+                push(&repo, "origin", branch_name)
+            })?;
         }
         Commands::Pull {} => {
-            print!("Pulling... ");
-            pull(&repo, "origin", "HEAD")?;
-            println!("{}", "Done".green());
+            show_progress("Pulling", || pull(&repo, "origin", "HEAD"))?;
         }
         Commands::Features {} => {
             let branches = repo.branches(Some(git2::BranchType::Local))?;
@@ -197,20 +193,3 @@ fn run(cli: Cli) -> Result<(), Error> {
 }
 
 // --- Helper Functions ---
-fn show_progress<F, R>(message: &str, action: F) -> Result<R, Error>
-where
-    F: FnOnce() -> Result<R, Error>,
-{
-    print!("{}... ", message);
-    std::io::stdout().flush().unwrap();
-    match action() {
-        Ok(result) => {
-            println!("{}", "Done".green());
-            Ok(result)
-        }
-        Err(e) => {
-            println!("{}", "Error".red());
-            Err(e)
-        }
-    }
-}
