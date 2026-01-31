@@ -7,9 +7,7 @@ pub fn has_remote(repo: &Repository, name: &str) -> bool {
 
 /// Analyzes the diff to suggest a Conventional Commit prefix
 pub fn generate_conventional_message(repo: &Repository) -> Result<String, git2::Error> {
-    let mut index = repo.index()?;
-    index.add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)?;
-    index.write()?;
+    let index = repo.index()?;
 
     let head_tree = match repo.head() {
         Ok(head) => Some(head.peel_to_commit()?.tree()?),

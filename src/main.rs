@@ -207,6 +207,11 @@ fn run(cli: Cli) -> Result<(), Error> {
             }
 
             println!("--- Staging and Analyzing ---");
+
+            let mut index = repo.index()?;
+            index.add_all(["."].iter(), git2::IndexAddOption::DEFAULT, None)?;
+            index.write()?;
+
             let msg = match message {
                 Some(m) => m,
                 None => generate_conventional_message(&repo)?,
