@@ -4,6 +4,7 @@ mod helpers;
 use clap::{Parser, Subcommand};
 use git2::{Error, Repository};
 use owo_colors::OwoColorize;
+use std::io::Write;
 
 use git_commands::*;
 use helpers::*;
@@ -132,27 +133,26 @@ fn run(cli: Cli) -> Result<(), Error> {
             create_feature_branch(&repo, &name, base)?;
         }
         Commands::Save { message } => {
-            print!("Pulling... ");
-            pull(&repo, "origin", "HEAD")?;
+            show_progress("Pulling", || pull(&repo, "origin", "HEAD"))?;
 
-            print!("Staging... ");
-            let mut index = repo.index()?;
-            index.add_all(["."].iter(), git2::IndexAddOption::DEFAULT, None)?;
-            index.write()?;
+            let msg = show_progress("Staging and Analyzing", || {
+                let mut index = repo.index()?;
+                index.add_all(["."].iter(), git2::IndexAddOption::DEFAULT, None)?;
+                index.write()?;
 
-            let msg = match message {
-                Some(m) => m,
-                None => generate_conventional_message(&repo)?,
-            };
+                match message {
+                    Some(m) => Ok(m),
+                    None => generate_conventional_message(&repo),
+                }
+            })?;
 
-            print!("Committing... ");
-            commit_all(&repo, &msg)?;
+            show_progress("Committing", || commit_all(&repo, &msg))?;
 
-            print!("Pushing... ");
-            let head = repo.head()?;
-            let branch_name = head.shorthand().unwrap_or("HEAD");
-            push(&repo, "origin", branch_name)?;
-            println!("{}", "Done".green());
+            show_progress("Pushing", || {
+                let head = repo.head()?;
+                let branch_name = head.shorthand().unwrap_or("HEAD");
+                push(&repo, "origin", branch_name)
+            })?;
         }
         Commands::Done { no_clean } => {
             done(&repo, no_clean)?;
@@ -197,3 +197,20 @@ fn run(cli: Cli) -> Result<(), Error> {
 }
 
 // --- Helper Functions ---
+fn show_progress<F, R>(message: &str, action: F) -> Result<R, Error>
+where
+    F: FnOnce() -> Result<R, Error>,
+{
+    print!("{}... ", message);
+    std::io::stdout().flush().unwrap();
+    match action() {
+        Ok(result) => {
+            println!("{}", "Done".green());
+            Ok(result)
+        }
+        Err(e) => {
+            println!("{}", "Error".red());
+            Err(e)
+        }
+    }
+}
