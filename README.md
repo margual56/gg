@@ -27,6 +27,8 @@ graph TD
     Code --> Save["<b>gg save</b><br/>Auto-commit & Push"]
     
     Save -- "Still working?" --> Code
+    Save -- "Review?" --> PR["<b>gg pr --open</b><br/>Open Pull Request"]
+    PR --> Done
     Save -- "Finished?" --> Done["<b>gg done</b><br/>Merge & Clean up"]
     
     Done --> Main
@@ -38,6 +40,7 @@ graph TD
     style Config fill:#f5f5f5,stroke:#333
     style Remote fill:#f5f5f5,stroke:#333
     style Save fill:#bbf,stroke:#333
+    style PR fill:#ff9,stroke:#333
     style Done fill:#bfb,stroke:#333
     style Fix fill:#f66,stroke:#333
 ```
@@ -52,14 +55,14 @@ gg config "Your Name" "email@example.com" --global
 2. Start a project and link it
 
 Instead of fighting with --allow-unrelated-histories:
-```Bash
+```bash
 git init
 gg save -m "Initial work"
 gg remote git@github.com:user/repo.git
 ```
 
 3. Save your work
-```Bash
+```bash
 # Automatically generates: feat: added 3 files (+12, -0, ~0)
 gg save
 
@@ -67,11 +70,24 @@ gg save
 gg save --dry-run
 ```
 
+4. Create a Pull Request
+```bash
+# Output the link to stdout
+gg pr
+
+# Or open it directly in your browser
+gg pr --open
+```
+
 🛠 Commands
 |Command|Description|
 |---|---|
+|pull|Pulls from the remote|
+|push|Pushes to the remote|
+|features|Lists all branches|
 |feature -n <name>|Pulls latest, switches to a new branch, and pushes upstream.|
 |save [-m msg]|Pulls, stages all, commits (auto-conventional), and pushes.|
+|pr [--open]|Generates - and optionally opens - a link to create a PR on the appropriate service, if any|
 |done [--no-clean]|Switches to main, pulls, and deletes the feature branch.|
 |remote <url>|Sets remote and performs an auto-rebase sync of histories.|
 |config <n> <e>|Sets Git user.name and user.email.|
@@ -85,5 +101,4 @@ When you run gg remote, the tool performs a specialized sync:
 3. It rebases your local commits onto the remote's HEAD.
 4. It sets up upstream tracking so you never have to type git push -u origin main again.
 
-## ⚖️ License
 GPLv3
