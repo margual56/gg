@@ -1,4 +1,5 @@
 use git_url_parse::GitUrl;
+use git_url_parse::types::provider::{AzureDevOpsProvider, GenericProvider, GitLabProvider};
 use git2::{CertificateCheckStatus, Config, Cred, Error, RemoteCallbacks, Repository};
 use owo_colors::OwoColorize;
 use std::cell::Cell;
@@ -279,10 +280,16 @@ pub fn get_pr_link(repo: &Repository) -> Option<String> {
     // 4. Construct the PR URL based on the provider
     // Note: 'parsed.host' returns Option<&str>, usually "github.com", "gitlab.com", etc.
     let host = parsed.host().unwrap_or("");
-    let path = parsed.path(); // owner/repo
 
     let pr_url = match host {
         "github.com" => {
+            let provider_info: GenericProvider = if let Ok(info) = parsed.provider_info() {
+                info
+            } else {
+                return None;
+            };
+            let path = format!("{}/{}", provider_info.owner(), provider_info.repo()); // owner/repo
+
             // GitHub format: https://github.com/OWNER/REPO/compare/BRANCH?expand=1
             format!(
                 "https://github.com/{}/compare/{}?expand=1",
@@ -290,6 +297,13 @@ pub fn get_pr_link(repo: &Repository) -> Option<String> {
             )
         }
         "gitlab.com" => {
+            let provider_info: GitLabProvider = if let Ok(info) = parsed.provider_info() {
+                info
+            } else {
+                return None;
+            };
+            let path = format!("{}/{}", provider_info.owner(), provider_info.repo()); // owner/repo
+
             // GitLab format: https://gitlab.com/OWNER/REPO/-/merge_requests/new?merge_request[source_branch]=BRANCH
             format!(
                 "https://gitlab.com/{}/-/merge_requests/new?merge_request[source_branch]={}",
@@ -297,6 +311,13 @@ pub fn get_pr_link(repo: &Repository) -> Option<String> {
             )
         }
         "bitbucket.org" => {
+            let provider_info: AzureDevOpsProvider = if let Ok(info) = parsed.provider_info() {
+                info
+            } else {
+                return None;
+            };
+            let path = provider_info.fullname(); // org/project/repo
+
             // Bitbucket format: https://bitbucket.org/OWNER/REPO/pull-requests/new?source=BRANCH
             format!(
                 "https://bitbucket.org/{}/pull-requests/new?source={}",
@@ -304,6 +325,13 @@ pub fn get_pr_link(repo: &Repository) -> Option<String> {
             )
         }
         _ => {
+            let provider_info: GenericProvider = if let Ok(info) = parsed.provider_info() {
+                info
+            } else {
+                return None;
+            };
+            let path = format!("{}/{}", provider_info.owner(), provider_info.repo()); // owner/repo
+
             // Fallback or error for unknown forges
             format!("https://{}/{}/pull/new/{}", host, path, branch_name)
         }
