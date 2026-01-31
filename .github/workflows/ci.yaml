@@ -1,4 +1,4 @@
-name: Rust CI
+name: Rust CI & Release
 
 on:
   push:
@@ -10,10 +10,10 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Job 1: Build and Test
   build_and_test:
     name: Build and Test
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -37,3 +37,58 @@ jobs:
 
       - name: Run tests
         run: cargo test --verbose
+
+  # Job 2: Release (Only runs on push to main/master after Job 1 succeeds)
+  release:
+    name: Version Bump and Tag
+    needs: build_and_test
+    runs-on: ubuntu-latest
+    # Only run on pushes to main/master (not PRs) and skip if already a release commit
+    if: |
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') &&
+      !contains(github.event.head_commit.message, 'chore(release)')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-edit
+        run: cargo install cargo-edit
+
+      - name: Determine Version Bump
+        id: bump
+        run: |
+          MESSAGE="${{ github.event.head_commit.message }}"
+          if echo "$MESSAGE" | grep -qE "^feat(\(.*\))?!:"; then
+            echo "level=major" >> $GITHUB_OUTPUT
+          elif echo "$MESSAGE" | grep -qE "^feat(\(.*\))?:"; then
+            echo "level=minor" >> $GITHUB_OUTPUT
+          else
+            echo "level=patch" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Bump version in Cargo.toml
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+          cargo set-version --bump ${{ steps.bump.outputs.level }}
+
+          NEW_VERSION=$(grep '^version =' Cargo.toml | head -n 1 | cut -d '"' -f 2)
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+
+          git add Cargo.toml
+          git commit -m "chore(release): bump version to $NEW_VERSION [skip ci]"
+          git push
+
+      - name: Create and Push Tag
+        run: |
+          git tag v${{ env.NEW_VERSION }}
+          git push origin v${{ env.NEW_VERSION }}
