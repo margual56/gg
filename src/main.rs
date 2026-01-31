@@ -88,9 +88,7 @@ fn main() {
 
     match run(cli) {
         Ok(()) => {}
-        Err(e) => match e.code() {
-            _ => println!("{}", e.message()),
-        },
+        Err(e) => println!("{}", e.message()),
     };
 }
 
@@ -169,7 +167,7 @@ fn run(cli: Cli) -> Result<(), Error> {
         } => {
             configure_git(&repo, &name, &email, global)?;
             let scope = if global { "globally" } else { "locally" };
-            println!("--- Configured {} as {} <{}> ---", scope, name, email);
+            println!("--- Configured {scope} as {name} <{email}> ---");
         }
         Commands::Remote { url, name } => {
             // 1. Set or Update URL
@@ -179,12 +177,12 @@ fn run(cli: Cli) -> Result<(), Error> {
                     repo.remote(&name, &url)?;
                 }
             }
-            println!("--- Remote '{}' set to {} ---", name, url);
+            println!("--- Remote '{name}' set to {url} ---");
 
             // 2. Perform the "weird shit" sync automatically
             println!("--- Syncing with remote ---");
             if let Err(e) = sync_unrelated_histories(&repo, &name) {
-                eprintln!("--- Sync Note: {} ---", e);
+                eprintln!("--- Sync Note: {e} ---");
                 // We don't exit(1) here because the remote URL is still set successfully
             } else {
                 println!("--- Pushing ---");
@@ -206,7 +204,7 @@ fn run(cli: Cli) -> Result<(), Error> {
             if open {
                 match webbrowser::open(&link) {
                     Ok(_) => println!("Opened PR URL in browser"),
-                    Err(e) => eprintln!("Failed to open PR URL in browser: {}", e),
+                    Err(e) => eprintln!("Failed to open PR URL in browser: {e}"),
                 }
             }
         }
@@ -214,5 +212,3 @@ fn run(cli: Cli) -> Result<(), Error> {
 
     Ok(())
 }
-
-// --- Helper Functions ---

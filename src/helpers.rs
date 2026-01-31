@@ -68,18 +68,12 @@ pub fn generate_conventional_message(repo: &Repository) -> Result<String, git2::
             prefix
         };
         Ok(format!(
-            "{}({}): {} file (+{}, -{}, ~{})",
-            p, file, verb, added, deleted, modified
+            "{p}({file}): {verb} file (+{added}, -{deleted}, ~{modified})"
         ))
     } else {
         Ok(format!(
-            "{}: {} {} files (+{}, -{}, ~{})",
-            prefix,
-            verb,
+            "{prefix}: {verb} {} files (+{added}, -{deleted}, ~{modified})",
             affected_files.len(),
-            added,
-            deleted,
-            modified
         ))
     }
 }
@@ -149,7 +143,7 @@ pub fn sync_unrelated_histories(repo: &Repository, remote_name: &str) -> Result<
         .map(|h| h.shorthand().unwrap_or("main").to_string())
         .unwrap_or_else(|_| "main".to_string());
 
-    let remote_ref_name = format!("refs/remotes/{}/{}", remote_name, local_branch_name);
+    let remote_ref_name = format!("refs/remotes/{remote_name}/{local_branch_name}");
 
     if let Ok(remote_ref) = repo.find_reference(&remote_ref_name) {
         let remote_commit_annotated = repo.reference_to_annotated_commit(&remote_ref)?;
@@ -160,7 +154,7 @@ pub fn sync_unrelated_histories(repo: &Repository, remote_name: &str) -> Result<
             Ok(head) => {
                 let local_commit_annotated = repo.reference_to_annotated_commit(&head)?;
                 if local_commit_annotated.id() != remote_commit_annotated.id() {
-                    println!("--- Rebasing local work onto {} ---", remote_ref_name);
+                    println!("--- Rebasing local work onto {remote_ref_name} ---");
                     let mut rebase =
                         repo.rebase(None, Some(&remote_commit_annotated), None, None)?;
 
@@ -183,14 +177,14 @@ pub fn sync_unrelated_histories(repo: &Repository, remote_name: &str) -> Result<
                 println!("--- Initializing local branch from remote ---");
                 // Use the actual commit object found via ID
                 repo.branch(&local_branch_name, &remote_commit_actual, false)?;
-                repo.set_head(&format!("refs/heads/{}", local_branch_name))?;
+                repo.set_head(&format!("refs/heads/{local_branch_name}"))?;
                 repo.checkout_head(Some(git2::build::CheckoutBuilder::default().force()))?;
             }
         }
 
         // Link the branches for future 'Save' calls
         let mut branch = repo.find_branch(&local_branch_name, git2::BranchType::Local)?;
-        branch.set_upstream(Some(&format!("{}/{}", remote_name, local_branch_name)))?;
+        branch.set_upstream(Some(&format!("{remote_name}/{local_branch_name}")))?;
         println!("--- Tracking relationship established ---");
     } else {
         println!("--- Remote is empty. Ready for your first 'Save'. ---");
@@ -235,7 +229,7 @@ pub fn show_progress<F, R>(message: &str, action: F) -> Result<R, Error>
 where
     F: FnOnce() -> Result<R, Error>,
 {
-    print!("{}... ", message);
+    print!("{message}... ");
     std::io::stdout().flush().unwrap();
     match action() {
         Ok(result) => {
@@ -264,11 +258,7 @@ pub fn get_pr_link(repo: &Repository) -> Option<String> {
     } else {
         return None;
     };
-    let remote_url_str = if let Some(url) = remote.url() {
-        url
-    } else {
-        return None;
-    };
+    let remote_url_str = remote.url()?;
 
     // 3. Parse the URL (handles git@... and https://...)
     let parsed = if let Ok(parsed) = GitUrl::parse(remote_url_str) {
@@ -291,10 +281,7 @@ pub fn get_pr_link(repo: &Repository) -> Option<String> {
             let path = format!("{}/{}", provider_info.owner(), provider_info.repo()); // owner/repo
 
             // GitHub format: https://github.com/OWNER/REPO/compare/BRANCH?expand=1
-            format!(
-                "https://github.com/{}/compare/{}?expand=1",
-                path, branch_name
-            )
+            format!("https://github.com/{path}/compare/{branch_name}?expand=1")
         }
         "gitlab.com" => {
             let provider_info: GitLabProvider = if let Ok(info) = parsed.provider_info() {
@@ -306,8 +293,7 @@ pub fn get_pr_link(repo: &Repository) -> Option<String> {
 
             // GitLab format: https://gitlab.com/OWNER/REPO/-/merge_requests/new?merge_request[source_branch]=BRANCH
             format!(
-                "https://gitlab.com/{}/-/merge_requests/new?merge_request[source_branch]={}",
-                path, branch_name
+                "https://gitlab.com/{path}/-/merge_requests/new?merge_request[source_branch]={branch_name}"
             )
         }
         "bitbucket.org" => {
@@ -319,10 +305,7 @@ pub fn get_pr_link(repo: &Repository) -> Option<String> {
             let path = provider_info.fullname(); // org/project/repo
 
             // Bitbucket format: https://bitbucket.org/OWNER/REPO/pull-requests/new?source=BRANCH
-            format!(
-                "https://bitbucket.org/{}/pull-requests/new?source={}",
-                path, branch_name
-            )
+            format!("https://bitbucket.org/{path}/pull-requests/new?source={branch_name}")
         }
         _ => {
             let provider_info: GenericProvider = if let Ok(info) = parsed.provider_info() {
@@ -333,7 +316,7 @@ pub fn get_pr_link(repo: &Repository) -> Option<String> {
             let path = format!("{}/{}", provider_info.owner(), provider_info.repo()); // owner/repo
 
             // Fallback or error for unknown forges
-            format!("https://{}/{}/pull/new/{}", host, path, branch_name)
+            format!("https://{host}/{path}/pull/new/{branch_name}")
         }
     };
 

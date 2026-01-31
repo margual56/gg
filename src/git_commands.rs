@@ -110,7 +110,7 @@ pub fn pull(repo: &Repository, remote_name: &str, branch_name: &str) -> Result<(
     // 3. Act on Analysis
     if analysis.0.is_fast_forward() {
         // Fast-forward the branch
-        let refname = format!("refs/heads/{}", branch_name);
+        let refname = format!("refs/heads/{branch_name}");
         match repo.find_reference(&refname) {
             Ok(mut r) => {
                 let name = refname.clone();
@@ -174,13 +174,12 @@ pub fn pull(repo: &Repository, remote_name: &str, branch_name: &str) -> Result<(
 
                     // Ensure parent directory exists
                     if let Some(parent) = full_path.parent() {
-                        std::fs::create_dir_all(parent).map_err(|e| {
-                            Error::from_str(&format!("Failed to create dirs: {}", e))
-                        })?;
+                        std::fs::create_dir_all(parent)
+                            .map_err(|e| Error::from_str(&format!("Failed to create dirs: {e}")))?;
                     }
 
                     std::fs::write(&full_path, blob.content())
-                        .map_err(|e| Error::from_str(&format!("Failed to write file: {}", e)))?;
+                        .map_err(|e| Error::from_str(&format!("Failed to write file: {e}")))?;
 
                     // Add the resolved file to the index, which removes the conflict entry.
                     index.add_path(path)?;
@@ -194,24 +193,17 @@ pub fn pull(repo: &Repository, remote_name: &str, branch_name: &str) -> Result<(
                 if let Some(their) = &conflict.their {
                     let blob = repo.find_blob(their.id)?;
                     let content = blob.content();
-                    let theirs_path = format!("{}.theirs", our_path_str);
+                    let theirs_path = format!("{our_path_str}.theirs");
 
                     if let Err(e) = std::fs::write(&theirs_path, content) {
-                        eprintln!(
-                            "Warning: Could not write remote changes to {}: {}",
-                            theirs_path, e
-                        );
+                        eprintln!("Warning: Could not write remote changes to {theirs_path}: {e}");
                     } else {
-                        println!(
-                            "  - Remote version of {} saved to {}",
-                            our_path_str, theirs_path
-                        );
+                        println!("  - Remote version of {our_path_str} saved to {theirs_path}");
                     }
                 } else {
                     // This can happen if the conflict is a delete/modify.
                     println!(
-                        "  - {} (conflict: remote version was deleted or not present)",
-                        our_path_str
+                        "  - {our_path_str} (conflict: remote version was deleted or not present)"
                     );
                 }
             }
@@ -225,10 +217,8 @@ pub fn pull(repo: &Repository, remote_name: &str, branch_name: &str) -> Result<(
 
         let signature = repo.signature()?;
         let head_shorthand = repo.head()?.shorthand().unwrap_or("HEAD").to_string();
-        let msg = format!(
-            "Merge remote-tracking branch 'origin/{}' into {}",
-            head_shorthand, head_shorthand
-        );
+        let msg =
+            format!("Merge remote-tracking branch 'origin/{head_shorthand}' into {head_shorthand}");
 
         repo.commit(
             Some("HEAD"),
@@ -277,7 +267,7 @@ pub fn resolve(repo: &Repository, cleanup: bool) -> Result<(), Error> {
         .ok_or_else(|| Error::from_str("Repository has no workdir"))?;
     let mut theirs_files = Vec::new();
     find_theirs_files(workdir, &mut theirs_files)
-        .map_err(|e| Error::from_str(&format!("Error scanning for conflict files: {}", e)))?;
+        .map_err(|e| Error::from_str(&format!("Error scanning for conflict files: {e}")))?;
 
     if theirs_files.is_empty() {
         if cleanup {
@@ -306,10 +296,7 @@ pub fn resolve(repo: &Repository, cleanup: bool) -> Result<(), Error> {
         for path in theirs_files {
             let theirs_path_str = path.to_string_lossy();
             let original_path_str = theirs_path_str.trim_end_matches(".theirs");
-            println!(
-                "  - {} (remote saved to {})",
-                original_path_str, theirs_path_str
-            );
+            println!("  - {original_path_str} (remote saved to {theirs_path_str})");
         }
         println!("\nPlease use your preferred merge tool to combine them. For example:");
         println!("  code --diff path/to/your/file path/to/your/file.theirs");
@@ -345,22 +332,22 @@ pub fn create_feature_branch(
             (commit, base_branch_name)
         }
         None => {
-            show_progress("Syncing current branch", || pull(&repo, "origin", "HEAD"))?;
+            show_progress("Syncing current branch", || pull(repo, "origin", "HEAD"))?;
             let commit = repo.head()?.peel_to_commit()?;
             (commit, "HEAD".to_string())
         }
     };
 
     // 2. Create or switch to branch
-    let branch = if let Ok(b) = repo.find_branch(&name, BranchType::Local) {
+    let branch = if let Ok(b) = repo.find_branch(name, BranchType::Local) {
         b
     } else if let Ok(remote_branch) =
-        repo.find_branch(&format!("origin/{}", name), BranchType::Remote)
+        repo.find_branch(&format!("origin/{name}"), BranchType::Remote)
     {
         show_progress("Creating local tracking branch", || {
             let commit = remote_branch.get().peel_to_commit()?;
-            let mut branch = repo.branch(&name, &commit, false)?;
-            branch.set_upstream(Some(&format!("origin/{}", name)))?;
+            let mut branch = repo.branch(name, &commit, false)?;
+            branch.set_upstream(Some(&format!("origin/{name}")))?;
             Ok(branch)
         })?
     } else {
@@ -369,11 +356,11 @@ pub fn create_feature_branch(
             name.bold(),
             base_name.bold()
         );
-        repo.branch(&name, &base_commit, false)?
+        repo.branch(name, &base_commit, false)?
     };
 
     // 3. Switch HEAD
-    if repo.head()?.shorthand() != Some(&name) {
+    if repo.head()?.shorthand() != Some(name) {
         show_progress(&format!("Switching to branch '{}'", name.bold()), || {
             let refname = branch
                 .get()
@@ -387,7 +374,7 @@ pub fn create_feature_branch(
     }
 
     // 4. Push upstream
-    show_progress("Pushing upstream", || push(&repo, "origin", &name, false))?;
+    show_progress("Pushing upstream", || push(repo, "origin", name, false))?;
 
     Ok(())
 }
@@ -406,26 +393,23 @@ pub fn done(repo: &Repository, no_clean: bool) -> Result<(), Error> {
     };
 
     if current_branch_name == main_branch {
-        println!("Already on {}, nothing to finalize.", main_branch);
+        println!("Already on {main_branch}, nothing to finalize.");
         return Ok(());
     }
 
-    show_progress(&format!("Switching to {}", main_branch), || {
-        repo.set_head(&format!("refs/heads/{}", main_branch))?;
+    show_progress(&format!("Switching to {main_branch}"), || {
+        repo.set_head(&format!("refs/heads/{main_branch}"))?;
         repo.checkout_head(Some(git2::build::CheckoutBuilder::default().safe()))
     })?;
 
-    show_progress(&format!("Pulling {}", main_branch), || {
-        pull(&repo, "origin", main_branch)
+    show_progress(&format!("Pulling {main_branch}"), || {
+        pull(repo, "origin", main_branch)
     })?;
 
     if !no_clean {
         // Check if the branch exists on the remote (usually 'origin')
         let remote_branch_exists = repo
-            .find_branch(
-                &format!("origin/{}", current_branch_name),
-                BranchType::Remote,
-            )
+            .find_branch(&format!("origin/{current_branch_name}"), BranchType::Remote)
             .is_ok();
 
         if !remote_branch_exists {
@@ -443,12 +427,12 @@ pub fn done(repo: &Repository, no_clean: bool) -> Result<(), Error> {
             let response = input.trim().to_lowercase();
 
             if response != "y" && response != "yes" {
-                println!("Operation aborted. Keeping branch {}.", current_branch_name);
+                println!("Operation aborted. Keeping branch {current_branch_name}.");
                 return Ok(());
             }
         }
 
-        show_progress(&format!("Deleting branch {}", current_branch_name), || {
+        show_progress(&format!("Deleting branch {current_branch_name}"), || {
             let mut branch = repo.find_branch(&current_branch_name, BranchType::Local)?;
             branch.delete()
         })?;
