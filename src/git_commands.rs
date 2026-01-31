@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{io, path::Path};
 
 use git2::{BranchType, Error, PushOptions, Repository};
 use owo_colors::OwoColorize;
@@ -384,6 +384,33 @@ pub fn done(repo: &Repository, no_clean: bool) -> Result<(), Error> {
     })?;
 
     if !no_clean {
+        // Check if the branch exists on the remote (usually 'origin')
+        let remote_branch_exists = repo
+            .find_branch(
+                &format!("origin/{}", current_branch_name),
+                BranchType::Remote,
+            )
+            .is_ok();
+
+        if !remote_branch_exists {
+            print!(
+                "\n⚠️  {}: Branch '{}' has not been pushed to remote.\n\
+                Deleting it will result in permanent data loss. \n\
+                Proceed anyway? [y/N]: ",
+                "Warning".yellow(),
+                current_branch_name.bold()
+            );
+
+            let mut input = String::new();
+            io::stdin().read_line(&mut input).unwrap();
+            let response = input.trim().to_lowercase();
+
+            if response != "y" && response != "yes" {
+                println!("Operation aborted. Keeping branch {}.", current_branch_name);
+                return Ok(());
+            }
+        }
+
         show_progress(&format!("Deleting branch {}", current_branch_name), || {
             let mut branch = repo.find_branch(&current_branch_name, BranchType::Local)?;
             branch.delete()
