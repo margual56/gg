@@ -1,12 +1,12 @@
 use std::path::Path;
 
-use git2::{Error, PushOptions, Repository};
+use git2::{BranchType, Error, PushOptions, Repository};
+use owo_colors::OwoColorize;
 
-use crate::helpers::{create_callbacks, has_remote};
+use crate::helpers::{create_callbacks, has_remote, show_progress};
 
 pub fn commit_all(repo: &Repository, message: &str) -> Result<(), git2::Error> {
     let mut index = repo.index()?;
-    index.add_all(["."].iter(), git2::IndexAddOption::DEFAULT, None)?;
     let oid = index.write_tree()?;
     let tree = repo.find_tree(oid)?;
     let signature = repo.signature()?;
@@ -278,6 +278,116 @@ pub fn resolve(repo: &Repository, cleanup: bool) -> Result<(), Error> {
         println!("  code --diff path/to/your/file path/to/your/file.theirs");
         println!("  vimdiff path/to/your/file path/to/your/file.theirs");
         println!("\nWhen you are done, run 'gg resolve --cleanup' to remove the .theirs files.");
+    }
+
+    Ok(())
+}
+
+pub fn create_feature_branch(
+    repo: &git2::Repository,
+    name: &str,
+    base: Option<String>,
+) -> Result<(), Error> {
+    // 1. Determine base commit
+    let (base_commit, base_name) = match base {
+        Some(base_branch_name) => {
+            let commit = show_progress(
+                &format!("Fetching latest of '{}'", base_branch_name.bold()),
+                || {
+                    let mut remote = repo.find_remote("origin")?;
+                    let mut fetch_opts = git2::FetchOptions::new();
+                    fetch_opts.remote_callbacks(create_callbacks());
+                    remote.fetch(&[&base_branch_name], Some(&mut fetch_opts), None)?;
+
+                    let fetch_head = repo.find_reference("FETCH_HEAD")?;
+                    let commit = repo.reference_to_annotated_commit(&fetch_head)?.id();
+                    repo.find_commit(commit)
+                },
+            )?;
+            println!("Basing new feature on '{}'", base_branch_name.bold());
+            (commit, base_branch_name)
+        }
+        None => {
+            show_progress("Syncing current branch", || pull(&repo, "origin", "HEAD"))?;
+            let commit = repo.head()?.peel_to_commit()?;
+            (commit, "HEAD".to_string())
+        }
+    };
+
+    // 2. Create or switch to branch
+    let branch = if let Ok(b) = repo.find_branch(&name, BranchType::Local) {
+        println!("Switching to local branch '{}'", name.bold());
+        b
+    } else if let Ok(remote_branch) =
+        repo.find_branch(&format!("origin/{}", name), BranchType::Remote)
+    {
+        show_progress("Creating local tracking branch", || {
+            let commit = remote_branch.get().peel_to_commit()?;
+            let mut branch = repo.branch(&name, &commit, false)?;
+            branch.set_upstream(Some(&format!("origin/{}", name)))?;
+            Ok(branch)
+        })?
+    } else {
+        println!(
+            "Creating feature branch '{}' from {}",
+            name.bold(),
+            base_name.bold()
+        );
+        repo.branch(&name, &base_commit, false)?
+    };
+
+    // 3. Switch HEAD
+    if repo.head()?.shorthand() != Some(&name) {
+        show_progress(&format!("Switching to branch '{}'", name.bold()), || {
+            let refname = branch
+                .get()
+                .name()
+                .ok_or_else(|| Error::from_str("Branch refname not found"))?;
+            repo.set_head(refname)?;
+            repo.checkout_head(Some(git2::build::CheckoutBuilder::default().safe()))
+        })?;
+    } else {
+        println!("Already on branch '{}'", name.bold());
+    }
+
+    // 4. Push upstream
+    show_progress("Pushing upstream", || push(&repo, "origin", &name))?;
+
+    Ok(())
+}
+
+pub fn done(repo: &Repository, no_clean: bool) -> Result<(), Error> {
+    let head = repo.head()?;
+    let current_branch_name = head
+        .shorthand()
+        .ok_or_else(|| Error::from_str("Not on a valid branch"))?
+        .to_string();
+
+    let main_branch = if repo.find_branch("main", BranchType::Local).is_ok() {
+        "main"
+    } else {
+        "master"
+    };
+
+    if current_branch_name == main_branch {
+        println!("Already on {}, nothing to finalize.", main_branch);
+        return Ok(());
+    }
+
+    show_progress(&format!("Switching to {}", main_branch), || {
+        repo.set_head(&format!("refs/heads/{}", main_branch))?;
+        repo.checkout_head(Some(git2::build::CheckoutBuilder::default().safe()))
+    })?;
+
+    show_progress(&format!("Pulling {}", main_branch), || {
+        pull(&repo, "origin", main_branch)
+    })?;
+
+    if !no_clean {
+        show_progress(&format!("Deleting branch {}", current_branch_name), || {
+            let mut branch = repo.find_branch(&current_branch_name, BranchType::Local)?;
+            branch.delete()
+        })?;
     }
 
     Ok(())

@@ -1,5 +1,7 @@
 use git2::{CertificateCheckStatus, Config, Cred, Error, RemoteCallbacks, Repository};
+use owo_colors::OwoColorize;
 use std::cell::Cell;
+use std::io::Write;
 
 pub fn has_remote(repo: &Repository, name: &str) -> bool {
     repo.find_remote(name).is_ok()
@@ -7,9 +9,7 @@ pub fn has_remote(repo: &Repository, name: &str) -> bool {
 
 /// Analyzes the diff to suggest a Conventional Commit prefix
 pub fn generate_conventional_message(repo: &Repository) -> Result<String, git2::Error> {
-    let mut index = repo.index()?;
-    index.add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)?;
-    index.write()?;
+    let index = repo.index()?;
 
     let head_tree = match repo.head() {
         Ok(head) => Some(head.peel_to_commit()?.tree()?),
@@ -227,4 +227,22 @@ pub fn is_dirty(repo: &Repository) -> Result<bool, Error> {
 
     // If statuses is not empty, the repo is "dirty"
     Ok(!statuses.is_empty())
+}
+
+pub fn show_progress<F, R>(message: &str, action: F) -> Result<R, Error>
+where
+    F: FnOnce() -> Result<R, Error>,
+{
+    print!("{}... ", message);
+    std::io::stdout().flush().unwrap();
+    match action() {
+        Ok(result) => {
+            println!("{}", "Done".green());
+            Ok(result)
+        }
+        Err(e) => {
+            println!("{}", "Error".red());
+            Err(e)
+        }
+    }
 }
