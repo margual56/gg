@@ -319,7 +319,6 @@ pub fn create_feature_branch(
 
     // 2. Create or switch to branch
     let branch = if let Ok(b) = repo.find_branch(&name, BranchType::Local) {
-        println!("Switching to local branch '{}'", name.bold());
         b
     } else if let Ok(remote_branch) =
         repo.find_branch(&format!("origin/{}", name), BranchType::Remote)
