@@ -1,4 +1,7 @@
-use std::{io, path::Path};
+use std::{
+    io::{self, Write},
+    path::Path,
+};
 
 use git2::{BranchType, Error, PushOptions, Repository};
 use owo_colors::OwoColorize;
@@ -316,7 +319,6 @@ pub fn create_feature_branch(
 
     // 2. Create or switch to branch
     let branch = if let Ok(b) = repo.find_branch(&name, BranchType::Local) {
-        println!("Switching to local branch '{}'", name.bold());
         b
     } else if let Ok(remote_branch) =
         repo.find_branch(&format!("origin/{}", name), BranchType::Remote)
@@ -400,6 +402,7 @@ pub fn done(repo: &Repository, no_clean: bool) -> Result<(), Error> {
                 "Warning".yellow(),
                 current_branch_name.bold()
             );
+            _ = io::stdout().flush();
 
             let mut input = String::new();
             io::stdin().read_line(&mut input).unwrap();
