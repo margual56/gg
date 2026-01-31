@@ -2,7 +2,7 @@ mod git_commands;
 mod helpers;
 
 use clap::{Parser, Subcommand};
-use git2::{BranchType, Error, Repository};
+use git2::{Error, Repository};
 use owo_colors::OwoColorize;
 
 use git_commands::*;
