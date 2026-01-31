@@ -15,8 +15,8 @@
 ## Workflow
 ```mermaid
 graph TD
-    Start((<b>Start</b>)) --> Config["<b>gg config</b><br/>Set identity"]
-    Config --> Remote["<b>gg remote</b><br/>Link & Sync history"]
+    Start((<b>Start</b>)) --> Creds["<b>gg creds</b><br/>Set identity"]
+    Creds --> Remote["<b>gg remote</b><br/>Link & Sync history"]
     
     Remote --> Main[<b>Main Branch</b>]
     
@@ -37,7 +37,7 @@ graph TD
     Save -. "Conflict" .-> Fix[<i>Manual Fix</i>]
     Fix -. "Retry" .-> Save
 
-    style Config fill:#f5f5f5,stroke:#333
+    style Creds fill:#f5f5f5,stroke:#333
     style Remote fill:#f5f5f5,stroke:#333
     style Save fill:#bbf,stroke:#333
     style PR fill:#ff9,stroke:#333
@@ -49,7 +49,7 @@ graph TD
 
 ### 1. Configure your identity
 ```bash
-gg config "Your Name" "email@example.com" --global
+gg creds "Your Name" "email@example.com" --global
 ```
 
 2. Start a project and link it

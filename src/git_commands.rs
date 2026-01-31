@@ -8,33 +8,66 @@ use owo_colors::OwoColorize;
 
 use crate::helpers::{create_callbacks, has_remote, show_progress};
 
-pub fn commit_all(repo: &Repository, message: &str) -> Result<(), git2::Error> {
+pub fn commit_all(repo: &Repository, message: &str, amend: bool) -> Result<(), git2::Error> {
     let mut index = repo.index()?;
     let oid = index.write_tree()?;
     let tree = repo.find_tree(oid)?;
     let signature = repo.signature()?;
 
-    // Check if HEAD exists to find parent; if not, it's an empty list (Initial Commit)
-    let parent_commit = repo.head().ok().and_then(|h| h.peel_to_commit().ok());
-    let mut parents = Vec::new();
-    if let Some(ref p) = parent_commit {
-        parents.push(p);
-    }
+    let head_ref = repo.head().ok();
+    let head_commit = head_ref.as_ref().and_then(|h| h.peel_to_commit().ok());
 
-    repo.commit(
-        Some("HEAD"),
+    let (final_message, parents) = if amend {
+        let parent = head_commit.ok_or_else(|| git2::Error::from_str("No commit to amend"))?;
+
+        // Use the existing commit's message if amending
+        let msg = parent.message().unwrap_or(message);
+
+        // When amending, the parents are the parents of the commit we are replacing
+        let p: Vec<_> = parent.parents().collect();
+        (msg.to_string(), p)
+    } else {
+        let mut p = Vec::new();
+        if let Some(ref parent) = head_commit {
+            p.push(parent.clone());
+        }
+        (message.to_string(), p)
+    };
+
+    let parent_refs: Vec<&git2::Commit> = parents.iter().collect();
+
+    // To prevent "current tip is not the first parent" error:
+    // If we are NOT amending, we update HEAD automatically.
+    // If we ARE amending, we create the commit without updating the ref immediately,
+    // then manually update the reference to point to the new commit.
+    let update_ref = if amend { None } else { Some("HEAD") };
+
+    let new_commit_id = repo.commit(
+        update_ref,
         &signature,
         &signature,
-        message,
+        &final_message,
         &tree,
-        &parents,
+        &parent_refs,
     )?;
+
+    if amend {
+        // Manually update the current branch reference to the new commit
+        if let Some(mut head) = head_ref {
+            head.set_target(new_commit_id, "gg: amend commit")?;
+        }
+    }
 
     Ok(())
 }
 
 /// Helper to Push changes to remote
-pub fn push(repo: &Repository, remote_name: &str, branch_name: &str) -> Result<(), Error> {
+pub fn push(
+    repo: &Repository,
+    remote_name: &str,
+    branch_name: &str,
+    force: bool,
+) -> Result<(), Error> {
     if !has_remote(repo, remote_name) {
         return Ok(());
     }
@@ -44,8 +77,9 @@ pub fn push(repo: &Repository, remote_name: &str, branch_name: &str) -> Result<(
     let mut push_opts = PushOptions::new();
     push_opts.remote_callbacks(create_callbacks());
 
-    // Refspec: refs/heads/branch:refs/heads/branch
-    let refspec = format!("refs/heads/{}:refs/heads/{}", branch_name, branch_name);
+    // In Git, prepending a '+' to the refspec indicates a force push.
+    let prefix = if force { "+" } else { "" };
+    let refspec = format!("{prefix}refs/heads/{branch_name}:refs/heads/{branch_name}");
 
     remote.push(&[&refspec], Some(&mut push_opts))?;
 
@@ -353,7 +387,7 @@ pub fn create_feature_branch(
     }
 
     // 4. Push upstream
-    show_progress("Pushing upstream", || push(&repo, "origin", &name))?;
+    show_progress("Pushing upstream", || push(&repo, "origin", &name, false))?;
 
     Ok(())
 }

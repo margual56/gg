@@ -40,8 +40,11 @@ enum Commands {
 
     /// Git pull + commit + push
     Save {
-        #[arg(short, long)]
+        #[arg(short, long, group = "type")]
         message: Option<String>,
+
+        #[arg(long, group = "type", default_value_t = false)]
+        amend: bool,
     },
 
     /// Git switch main + git pull [+ git branch -D <branch>]
@@ -118,7 +121,7 @@ fn run(cli: Cli) -> Result<(), Error> {
             show_progress("Pushing", || {
                 let head = repo.head()?;
                 let branch_name = head.shorthand().unwrap_or("HEAD");
-                push(&repo, "origin", branch_name)
+                push(&repo, "origin", branch_name, false)
             })?;
         }
         Commands::Pull {} => {
@@ -134,7 +137,7 @@ fn run(cli: Cli) -> Result<(), Error> {
         Commands::Feature { name, base } => {
             create_feature_branch(&repo, &name, base)?;
         }
-        Commands::Save { message } => {
+        Commands::Save { message, amend } => {
             show_progress("Pulling", || pull(&repo, "origin", "HEAD"))?;
 
             let msg = show_progress("Staging and Analyzing", || {
@@ -148,12 +151,12 @@ fn run(cli: Cli) -> Result<(), Error> {
                 }
             })?;
 
-            show_progress("Committing", || commit_all(&repo, &msg))?;
+            show_progress("Committing", || commit_all(&repo, &msg, amend))?;
 
             show_progress("Pushing", || {
                 let head = repo.head()?;
                 let branch_name = head.shorthand().unwrap_or("HEAD");
-                push(&repo, "origin", branch_name)
+                push(&repo, "origin", branch_name, true)
             })?;
         }
         Commands::Done { no_clean } => {
@@ -187,7 +190,7 @@ fn run(cli: Cli) -> Result<(), Error> {
                 println!("--- Pushing ---");
                 let head = repo.head()?;
                 let branch_name = head.shorthand().unwrap_or("HEAD");
-                push(&repo, "origin", branch_name)?;
+                push(&repo, "origin", branch_name, false)?;
             }
         }
         Commands::Resolve { cleanup } => {

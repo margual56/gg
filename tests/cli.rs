@@ -39,7 +39,7 @@ fn test_save_command() -> Result<(), Box<dyn std::error::Error>> {
     index.write()?;
 
     // 3. Run the `commit_all` function, which is the core of `gg save`
-    commit_all(&repo, "My test commit")?;
+    commit_all(&repo, "My test commit", false)?;
 
     // 4. Verify the result
     let log_output = Command::new("git")
