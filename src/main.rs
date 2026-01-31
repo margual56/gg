@@ -6,6 +6,7 @@ use git2::{Error, Repository};
 
 use git_commands::*;
 use helpers::*;
+use owo_colors::OwoColorize;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -71,6 +72,11 @@ enum Commands {
         /// Once you have manually merged the .theirs files, this flag will delete them
         #[arg(long, default_value_t = false)]
         cleanup: bool,
+    },
+    /// Generate the URL for a pull request
+    PR {
+        #[arg(short, long, default_value_t = false)]
+        open: bool,
     },
 }
 
@@ -186,6 +192,20 @@ fn run(cli: Cli) -> Result<(), Error> {
         }
         Commands::Resolve { cleanup } => {
             resolve(&repo, cleanup)?;
+        }
+        Commands::PR { open } => {
+            let link = if let Some(link) = get_pr_link(&repo) {
+                link
+            } else {
+                return Err(Error::from_str("No PR URL found"));
+            };
+            println!("PR URL: {}", link.underline());
+            if open {
+                match webbrowser::open(&link) {
+                    Ok(_) => println!("Opened PR URL in browser"),
+                    Err(e) => eprintln!("Failed to open PR URL in browser: {}", e),
+                }
+            }
         }
     };
 

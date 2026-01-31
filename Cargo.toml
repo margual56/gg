@@ -5,8 +5,10 @@ edition = "2024"
 
 [dependencies]
 clap = { version = "4.5.55", features = ["derive"] }
+git-url-parse = "0.6.0"
 git2 = "0.20.3"
 owo-colors = "4.2.3"
+webbrowser = "1.0.6"
 
 [dev-dependencies]
 assert_cmd = "2.1.2"
