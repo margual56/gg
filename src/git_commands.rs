@@ -1,6 +1,7 @@
 use std::path::Path;
 
-use git2::{Error, PushOptions, Repository};
+use git2::{BranchType, Error, PushOptions, Repository};
+use owo_colors::OwoColorize;
 
 use crate::helpers::{create_callbacks, has_remote};
 
@@ -277,6 +278,119 @@ pub fn resolve(repo: &Repository, cleanup: bool) -> Result<(), Error> {
         println!("  code --diff path/to/your/file path/to/your/file.theirs");
         println!("  vimdiff path/to/your/file path/to/your/file.theirs");
         println!("\nWhen you are done, run 'gg resolve --cleanup' to remove the .theirs files.");
+    }
+
+    Ok(())
+}
+
+pub fn create_feature_branch(
+    repo: &git2::Repository,
+    name: &str,
+    base: Option<String>,
+) -> Result<(), Error> {
+    // 1. Determine the base commit for the new branch
+    let (base_commit, base_name) = match base {
+        Some(base_branch_name) => {
+            print!("Fetching latest of '{}'... ", base_branch_name.bold());
+            let mut remote = repo.find_remote("origin")?;
+            let mut fetch_opts = git2::FetchOptions::new();
+            fetch_opts.remote_callbacks(create_callbacks());
+            remote.fetch(&[&base_branch_name], Some(&mut fetch_opts), None)?;
+
+            println!(
+                "{}\nBasing new feature on '{}'",
+                "Done".green(),
+                base_branch_name.bold()
+            );
+
+            // The commit we want is now at FETCH_HEAD
+            let fetch_head = repo.find_reference("FETCH_HEAD")?;
+            let commit = repo.reference_to_annotated_commit(&fetch_head)?.id();
+            let commit = repo.find_commit(commit)?;
+            (commit, base_branch_name)
+        }
+        None => {
+            print!("Syncing current branch... ");
+            pull(&repo, "origin", "HEAD")?;
+            println!("{}", "Done".green());
+
+            let commit = repo.head()?.peel_to_commit()?;
+            (commit, "HEAD".to_string())
+        }
+    };
+
+    // 2. Create or switch to branch
+    let branch = if let Ok(b) = repo.find_branch(&name, BranchType::Local) {
+        println!("Switching to local branch '{}'", name.bold());
+        b
+    } else if let Ok(remote_branch) =
+        repo.find_branch(&format!("origin/{}", name), BranchType::Remote)
+    {
+        println!(
+            "Found remote branch '{}'. Creating local tracking branch.",
+            name.bold()
+        );
+        let commit = remote_branch.get().peel_to_commit()?;
+        let mut branch = repo.branch(&name, &commit, false)?;
+        branch.set_upstream(Some(&format!("origin/{}", name)))?;
+        branch
+    } else {
+        println!(
+            "Creating feature branch '{}' from {}",
+            name.bold(),
+            base_name.bold()
+        );
+        repo.branch(&name, &base_commit, false)?
+    };
+
+    // 3. Switch to the new branch
+    let refname = branch.get().name().unwrap();
+    if repo.head()?.shorthand() != Some(&name) {
+        repo.set_head(refname)?;
+        repo.checkout_head(Some(git2::build::CheckoutBuilder::default().safe()))?;
+    } else {
+        println!("Already on branch '{}'", name.bold());
+    }
+
+    // 4. Push upstream to set tracking branch
+    print!("Pushing...");
+    push(&repo, "origin", &name)?;
+    println!("{}", "Done".green());
+
+    Ok(())
+}
+
+pub fn done(repo: &Repository, no_clean: bool) -> Result<(), Error> {
+    // Identify current branch to delete later
+    let head = repo.head()?;
+    let current_branch_name = head
+        .shorthand()
+        .ok_or_else(|| Error::from_str("Not on a valid branch"))?
+        .to_string();
+
+    // Determine main branch name (main or master)
+    let main_branch = if repo.find_branch("main", BranchType::Local).is_ok() {
+        "main"
+    } else {
+        "master"
+    };
+
+    if current_branch_name == main_branch {
+        println!("Already on {}, nothing to finalize.", main_branch);
+        return Ok(());
+    }
+
+    println!("--- Switching to {} ---", main_branch);
+    repo.set_head(&format!("refs/heads/{}", main_branch))?;
+    repo.checkout_head(Some(git2::build::CheckoutBuilder::default().safe()))?;
+
+    println!("--- Pulling {} ---", main_branch);
+    pull(&repo, "origin", main_branch)?;
+
+    if !no_clean {
+        println!("--- Deleting branch {} ---", current_branch_name);
+        let mut branch = repo.find_branch(&current_branch_name, BranchType::Local)?;
+        branch.delete()?;
     }
 
     Ok(())

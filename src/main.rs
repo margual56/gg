@@ -3,7 +3,7 @@ mod helpers;
 
 use clap::{Parser, Subcommand};
 use git2::{BranchType, Error, Repository};
-use owo_colors::{OwoColorize, colors::*};
+use owo_colors::OwoColorize;
 
 use git_commands::*;
 use helpers::*;
@@ -12,7 +12,8 @@ use helpers::*;
 #[command(version, about, long_about = None)]
 struct Cli {
     /// Path of the repo, defaults to "."
-    path: Option<String>,
+    #[arg(short, long, default_value = ".")]
+    path: String,
 
     /// Turn debugging information on
     #[arg(short, long, action = clap::ArgAction::Count)]
@@ -41,10 +42,6 @@ enum Commands {
     Save {
         #[arg(short, long)]
         message: Option<String>,
-
-        /// Preview the message and changes without committing
-        #[arg(short, long, default_value_t = false)]
-        dry_run: bool,
     },
 
     /// Git switch main + git pull [+ git branch -D <branch>]
@@ -90,7 +87,7 @@ fn main() {
 }
 
 fn run(cli: Cli) -> Result<(), Error> {
-    let path_str = cli.path.unwrap_or_else(|| String::from("."));
+    let path_str = cli.path;
     let repo = Repository::open(&path_str)?;
 
     match cli.command {
@@ -132,82 +129,13 @@ fn run(cli: Cli) -> Result<(), Error> {
             }
         }
         Commands::Feature { name, base } => {
-            // 1. Determine the base commit for the new branch
-            let (base_commit, base_name) = match base {
-                Some(base_branch_name) => {
-                    print!("Fetching latest of '{}'... ", base_branch_name.bold());
-                    let mut remote = repo.find_remote("origin")?;
-                    let mut fetch_opts = git2::FetchOptions::new();
-                    fetch_opts.remote_callbacks(create_callbacks());
-                    remote.fetch(&[&base_branch_name], Some(&mut fetch_opts), None)?;
-
-                    println!(
-                        "{}\nBasing new feature on '{}'",
-                        "Done".green(),
-                        base_branch_name.bold()
-                    );
-
-                    // The commit we want is now at FETCH_HEAD
-                    let fetch_head = repo.find_reference("FETCH_HEAD")?;
-                    let commit = repo.reference_to_annotated_commit(&fetch_head)?.id();
-                    let commit = repo.find_commit(commit)?;
-
-                    (commit, base_branch_name)
-                }
-                None => {
-                    print!("Syncing current branch... ");
-                    pull(&repo, "origin", "HEAD")?;
-                    println!("{}", "Done".green());
-
-                    let commit = repo.head()?.peel_to_commit()?;
-                    (commit, "HEAD".to_string())
-                }
-            };
-
-            // 2. Create or switch to branch
-            let branch = if let Ok(b) = repo.find_branch(&name, BranchType::Local) {
-                println!("Switching to local branch '{}'", name.bold());
-                b
-            } else if let Ok(b) = repo.find_branch(&name, BranchType::Remote) {
-                let remote_branch_name = b.name().unwrap().unwrap();
-                println!("Found remote branch '{}'", remote_branch_name.bold());
-
-                let commit = b.get().peel_to_commit()?;
-                repo.branch(&name, &commit, false)?
-                    .set_upstream(Some(&remote_branch_name))?;
-
-                repo.find_branch(&name, BranchType::Local)?
-            } else {
-                println!(
-                    "Creating feature branch '{}' from {}",
-                    name.bold(),
-                    base_name.bold()
-                );
-                repo.branch(&name, &base_commit, false)?
-            };
-
-            // 3. Switch to the new branch
-            let refname = branch.get().name().unwrap();
-            if repo.head()?.shorthand() != Some(&name) {
-                repo.set_head(refname)?;
-                repo.checkout_head(Some(git2::build::CheckoutBuilder::default().safe()))?;
-            } else {
-                println!("Already on branch '{}'", name.bold());
-            }
-
-            // 4. Push upstream to set tracking branch
-            print!("Pushing...");
-            push(&repo, "origin", &name)?;
-            println!("{}", "Done".green());
+            create_feature_branch(&repo, &name, base)?;
         }
-        Commands::Save { message, dry_run } => {
-            if !dry_run {
-                println!("--- Pulling latest changes ---");
-                pull(&repo, "origin", "HEAD")?;
-            }
+        Commands::Save { message } => {
+            print!("Pulling... ");
+            pull(&repo, "origin", "HEAD")?;
 
-            println!("--- Staging and Analyzing ---");
-
+            print!("Staging... ");
             let mut index = repo.index()?;
             index.add_all(["."].iter(), git2::IndexAddOption::DEFAULT, None)?;
             index.write()?;
@@ -217,52 +145,17 @@ fn run(cli: Cli) -> Result<(), Error> {
                 None => generate_conventional_message(&repo)?,
             };
 
-            if dry_run {
-                println!("\n[DRY RUN] Would have committed with message:");
-                println!(">> {}\n", msg);
-                println!("To execute, run without the -d flag.");
-            } else {
-                println!("--- Committing: \"{}\" ---", msg);
-                commit_all(&repo, &msg)?;
+            print!("Committing... ");
+            commit_all(&repo, &msg)?;
 
-                println!("--- Pushing ---");
-                let head = repo.head()?;
-                let branch_name = head.shorthand().unwrap_or("HEAD");
-                push(&repo, "origin", branch_name)?;
-            }
+            print!("Pushing... ");
+            let head = repo.head()?;
+            let branch_name = head.shorthand().unwrap_or("HEAD");
+            push(&repo, "origin", branch_name)?;
+            println!("{}", "Done".green());
         }
         Commands::Done { no_clean } => {
-            // Identify current branch to delete later
-            let head = repo.head()?;
-            let current_branch_name = head
-                .shorthand()
-                .ok_or_else(|| Error::from_str("Not on a valid branch"))?
-                .to_string();
-
-            // Determine main branch name (main or master)
-            let main_branch = if repo.find_branch("main", BranchType::Local).is_ok() {
-                "main"
-            } else {
-                "master"
-            };
-
-            if current_branch_name == main_branch {
-                println!("Already on {}, nothing to finalize.", main_branch);
-                return Ok(());
-            }
-
-            println!("--- Switching to {} ---", main_branch);
-            repo.set_head(&format!("refs/heads/{}", main_branch))?;
-            repo.checkout_head(Some(git2::build::CheckoutBuilder::default().safe()))?;
-
-            println!("--- Pulling {} ---", main_branch);
-            pull(&repo, "origin", main_branch)?;
-
-            if !no_clean {
-                println!("--- Deleting branch {} ---", current_branch_name);
-                let mut branch = repo.find_branch(&current_branch_name, BranchType::Local)?;
-                branch.delete()?;
-            }
+            done(&repo, no_clean)?;
         }
         Commands::Creds {
             name,
