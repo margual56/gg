@@ -3,6 +3,7 @@ mod helpers;
 
 use clap::{Parser, Subcommand};
 use git2::{BranchType, Error, Repository};
+use owo_colors::{OwoColorize, colors::*};
 
 use git_commands::*;
 use helpers::*;
@@ -112,14 +113,16 @@ fn run(cli: Cli) -> Result<(), Error> {
 
     match cli.command {
         Commands::Push {} => {
-            println!("--- Pushing ---");
+            print!("Pushing... ");
             let head = repo.head()?;
             let branch_name = head.shorthand().unwrap_or("HEAD");
             push(&repo, "origin", branch_name)?;
+            println!("{}", "Done".green());
         }
         Commands::Pull {} => {
-            println!("--- Pulling latest changes ---");
+            print!("Pulling... ");
             pull(&repo, "origin", "HEAD")?;
+            println!("{}", "Done".green());
         }
         Commands::Features {} => {
             let branches = repo.branches(Some(git2::BranchType::Local))?;
@@ -132,13 +135,17 @@ fn run(cli: Cli) -> Result<(), Error> {
             // 1. Determine the base commit for the new branch
             let (base_commit, base_name) = match base {
                 Some(base_branch_name) => {
-                    println!("--- Fetching latest of '{}' ---", base_branch_name);
+                    print!("Fetching latest of '{}'... ", base_branch_name.bold());
                     let mut remote = repo.find_remote("origin")?;
                     let mut fetch_opts = git2::FetchOptions::new();
                     fetch_opts.remote_callbacks(create_callbacks());
                     remote.fetch(&[&base_branch_name], Some(&mut fetch_opts), None)?;
 
-                    println!("--- Basing feature on '{}' ---", base_branch_name);
+                    println!(
+                        "{}\nBasing new feature on '{}'",
+                        "Done".green(),
+                        base_branch_name.bold()
+                    );
 
                     // The commit we want is now at FETCH_HEAD
                     let fetch_head = repo.find_reference("FETCH_HEAD")?;
@@ -148,23 +155,36 @@ fn run(cli: Cli) -> Result<(), Error> {
                     (commit, base_branch_name)
                 }
                 None => {
-                    println!("--- Syncing current branch ---");
+                    print!("Syncing current branch... ");
                     pull(&repo, "origin", "HEAD")?;
+                    println!("{}", "Done".green());
+
                     let commit = repo.head()?.peel_to_commit()?;
                     (commit, "HEAD".to_string())
                 }
             };
 
-            println!(
-                "--- Creating feature branch '{}' from {} ---",
-                name, base_name
-            );
+            // 2. Create or switch to branch
+            let branch = if let Ok(b) = repo.find_branch(&name, BranchType::Local) {
+                println!("Switching to local branch '{}'", name.bold());
+                b
+            } else if let Ok(b) = repo.find_branch(&name, BranchType::Remote) {
+                let remote_branch_name = b.name().unwrap().unwrap();
+                println!("Found remote branch '{}'", remote_branch_name.bold());
 
-            // 2. Create branch if it doesn't exist
-            let branch = repo
-                .find_branch(&name, BranchType::Local)
-                .or_else(|_| repo.branch(&name, &base_commit, false));
-            let branch = branch?;
+                let commit = b.get().peel_to_commit()?;
+                repo.branch(&name, &commit, false)?
+                    .set_upstream(Some(&remote_branch_name))?;
+
+                repo.find_branch(&name, BranchType::Local)?
+            } else {
+                println!(
+                    "Creating feature branch '{}' from {}",
+                    name.bold(),
+                    base_name.bold()
+                );
+                repo.branch(&name, &base_commit, false)?
+            };
 
             // 3. Switch to the new branch
             let refname = branch.get().name().unwrap();
@@ -172,12 +192,13 @@ fn run(cli: Cli) -> Result<(), Error> {
                 repo.set_head(refname)?;
                 repo.checkout_head(Some(git2::build::CheckoutBuilder::default().safe()))?;
             } else {
-                println!("Already on branch '{}'", name);
+                println!("Already on branch '{}'", name.bold());
             }
 
             // 4. Push upstream to set tracking branch
-            println!("--- Pushing upstream ---");
+            print!("Pushing...");
             push(&repo, "origin", &name)?;
+            println!("{}", "Done".green());
         }
         Commands::Save { message, dry_run } => {
             if !dry_run {
