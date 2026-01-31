@@ -1,4 +1,7 @@
-use std::{io, path::Path};
+use std::{
+    io::{self, Write},
+    path::Path,
+};
 
 use git2::{BranchType, Error, PushOptions, Repository};
 use owo_colors::OwoColorize;
@@ -400,6 +403,7 @@ pub fn done(repo: &Repository, no_clean: bool) -> Result<(), Error> {
                 "Warning".yellow(),
                 current_branch_name.bold()
             );
+            _ = io::stdout().flush();
 
             let mut input = String::new();
             io::stdin().read_line(&mut input).unwrap();
