@@ -150,63 +150,7 @@ pub fn pull(repo: &Repository, remote_name: &str, branch_name: &str) -> Result<(
         )?;
 
         if index.has_conflicts() {
-            println!("\n--- Conflicts detected. Auto-resolved using local version. ---");
-            println!("--- Remote changes saved to '.theirs' files for later review: ---");
-
-            let conflicts: Vec<_> = index.conflicts()?.filter_map(Result::ok).collect();
-
-            for conflict in conflicts {
-                let our_path_str: String;
-
-                // First, resolve the conflict in the index by choosing our version.
-                if let Some(our) = &conflict.our {
-                    let path_bytes = &our.path;
-                    our_path_str = String::from_utf8_lossy(path_bytes).to_string();
-                    let path = Path::new(&our_path_str);
-
-                    // To resolve the conflict, we'll write our version of the file
-                    // to the working directory and then add it to the index.
-                    let blob = repo.find_blob(our.id)?;
-                    let workdir = repo
-                        .workdir()
-                        .ok_or_else(|| Error::from_str("No workdir found"))?;
-                    let full_path = workdir.join(path);
-
-                    // Ensure parent directory exists
-                    if let Some(parent) = full_path.parent() {
-                        std::fs::create_dir_all(parent)
-                            .map_err(|e| Error::from_str(&format!("Failed to create dirs: {e}")))?;
-                    }
-
-                    std::fs::write(&full_path, blob.content())
-                        .map_err(|e| Error::from_str(&format!("Failed to write file: {e}")))?;
-
-                    // Add the resolved file to the index, which removes the conflict entry.
-                    index.add_path(path)?;
-                } else {
-                    // This case is unlikely, but if a conflict exists without a local
-                    // version, we can't resolve it this way.
-                    continue;
-                }
-
-                // Second, save the 'theirs' version to a file.
-                if let Some(their) = &conflict.their {
-                    let blob = repo.find_blob(their.id)?;
-                    let content = blob.content();
-                    let theirs_path = format!("{our_path_str}.theirs");
-
-                    if let Err(e) = std::fs::write(&theirs_path, content) {
-                        eprintln!("Warning: Could not write remote changes to {theirs_path}: {e}");
-                    } else {
-                        println!("  - Remote version of {our_path_str} saved to {theirs_path}");
-                    }
-                } else {
-                    // This can happen if the conflict is a delete/modify.
-                    println!(
-                        "  - {our_path_str} (conflict: remote version was deleted or not present)"
-                    );
-                }
-            }
+            resolve_conflicts_ours(repo, &mut index)?;
             println!("\nYou can manually merge the '.theirs' files at any time.");
         }
 
@@ -261,47 +205,122 @@ fn find_theirs_files(
     Ok(())
 }
 
+fn resolve_conflicts_ours(repo: &Repository, index: &mut git2::Index) -> Result<(), Error> {
+    let workdir = repo
+        .workdir()
+        .ok_or_else(|| Error::from_str("Repository has no workdir"))?;
+
+    println!("\n--- Conflicts detected. Auto-resolving using local version. ---");
+    println!("--- Remote changes saved to '.theirs' files for later review: ---");
+
+    let conflicts: Vec<_> = index.conflicts()?.filter_map(Result::ok).collect();
+
+    for conflict in conflicts {
+        let our_path_str: String;
+
+        // First, resolve the conflict in the index by choosing our version.
+        if let Some(our) = &conflict.our {
+            let path_bytes = &our.path;
+            our_path_str = String::from_utf8_lossy(path_bytes).to_string();
+            let path = Path::new(&our_path_str);
+
+            let blob = repo.find_blob(our.id)?;
+            let full_path = workdir.join(path);
+
+            if let Some(parent) = full_path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| Error::from_str(&format!("Failed to create dirs: {e}")))?;
+            }
+            std::fs::write(&full_path, blob.content())
+                .map_err(|e| Error::from_str(&format!("Failed to write file: {e}")))?;
+
+            index.add_path(path)?;
+        } else {
+            continue;
+        }
+
+        // Second, save the 'theirs' version to a file.
+        if let Some(their) = &conflict.their {
+            let blob = repo.find_blob(their.id)?;
+            let content = blob.content();
+            let theirs_filename = format!("{our_path_str}.theirs");
+            let theirs_path = workdir.join(&theirs_filename);
+
+            if let Err(e) = std::fs::write(&theirs_path, content) {
+                eprintln!(
+                    "Warning: Could not write remote changes to {}: {e}",
+                    theirs_path.display()
+                );
+            } else {
+                println!(
+                    "  - Remote version of {our_path_str} saved to {}",
+                    theirs_path.display()
+                );
+            }
+        } else {
+            println!("  - {our_path_str} (conflict: remote version was deleted or not present)");
+        }
+    }
+
+    Ok(())
+}
+
 pub fn resolve(repo: &Repository, cleanup: bool) -> Result<(), Error> {
     let workdir = repo
         .workdir()
         .ok_or_else(|| Error::from_str("Repository has no workdir"))?;
-    let mut theirs_files = Vec::new();
-    find_theirs_files(workdir, &mut theirs_files)
-        .map_err(|e| Error::from_str(&format!("Error scanning for conflict files: {e}")))?;
 
-    if theirs_files.is_empty() {
-        if cleanup {
+    if cleanup {
+        let mut theirs_files = Vec::new();
+        find_theirs_files(workdir, &mut theirs_files)
+            .map_err(|e| Error::from_str(&format!("Error scanning for conflict files: {e}")))?;
+
+        if theirs_files.is_empty() {
             println!("No conflict files (.theirs) to clean up.");
         } else {
-            println!("No conflicts found to resolve.");
+            println!("--- Cleaning up resolved conflict files ---");
+            for path in theirs_files {
+                match std::fs::remove_file(&path) {
+                    Ok(_) => println!("  - Deleted {}", path.to_string_lossy()),
+                    Err(e) => eprintln!(
+                        "Warning: Could not delete {}: {}",
+                        path.to_string_lossy(),
+                        e
+                    ),
+                }
+            }
         }
         return Ok(());
     }
 
-    if cleanup {
-        println!("--- Cleaning up resolved conflict files ---");
-        for path in theirs_files {
-            match std::fs::remove_file(&path) {
-                Ok(_) => println!("  - Deleted {}", path.to_string_lossy()),
-                Err(e) => eprintln!(
-                    "Warning: Could not delete {}: {}",
-                    path.to_string_lossy(),
-                    e
-                ),
-            }
-        }
+    let mut index = repo.index()?;
+    if index.has_conflicts() {
+        resolve_conflicts_ours(repo, &mut index)?;
+        index.write()?;
+        println!("\nYou can manually merge the '.theirs' files at any time.");
+        println!("When you are done, run 'gg resolve --cleanup' to remove the .theirs files.");
     } else {
-        println!("--- Conflicts to resolve ---");
-        println!("The following files have saved remote changes:");
-        for path in theirs_files {
-            let theirs_path_str = path.to_string_lossy();
-            let original_path_str = theirs_path_str.trim_end_matches(".theirs");
-            println!("  - {original_path_str} (remote saved to {theirs_path_str})");
+        let mut theirs_files = Vec::new();
+        find_theirs_files(workdir, &mut theirs_files)
+            .map_err(|e| Error::from_str(&format!("Error scanning for conflict files: {e}")))?;
+
+        if theirs_files.is_empty() {
+            println!("No conflicts found to resolve.");
+        } else {
+            println!("--- Conflicts to resolve ---");
+            println!("The following files have saved remote changes:");
+            for path in theirs_files {
+                let theirs_path_str = path.to_string_lossy();
+                let original_path_str = theirs_path_str.trim_end_matches(".theirs");
+                println!("  - {original_path_str} (remote saved to {theirs_path_str})");
+            }
+            println!("\nPlease use your preferred merge tool to combine them. For example:");
+            println!("  code --diff path/to/your/file path/to/your/file.theirs");
+            println!("  vimdiff path/to/your/file path/to/your/file.theirs");
+            println!(
+                "\nWhen you are done, run 'gg resolve --cleanup' to remove the .theirs files."
+            );
         }
-        println!("\nPlease use your preferred merge tool to combine them. For example:");
-        println!("  code --diff path/to/your/file path/to/your/file.theirs");
-        println!("  vimdiff path/to/your/file path/to/your/file.theirs");
-        println!("\nWhen you are done, run 'gg resolve --cleanup' to remove the .theirs files.");
     }
 
     Ok(())
@@ -379,7 +398,7 @@ pub fn create_feature_branch(
     Ok(())
 }
 
-pub fn done(repo: &Repository, no_clean: bool) -> Result<(), Error> {
+pub fn done(repo: &Repository, no_clean: bool, confirm_deletion: bool) -> Result<(), Error> {
     let head = repo.head()?;
     let current_branch_name = head
         .shorthand()
@@ -412,7 +431,7 @@ pub fn done(repo: &Repository, no_clean: bool) -> Result<(), Error> {
             .find_branch(&format!("origin/{current_branch_name}"), BranchType::Remote)
             .is_ok();
 
-        if !remote_branch_exists {
+        if confirm_deletion && !remote_branch_exists {
             print!(
                 "\n⚠️  {}: Branch '{}' has not been pushed to remote.\n\
                 Deleting it will result in permanent data loss. \n\

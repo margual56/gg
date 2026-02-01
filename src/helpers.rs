@@ -84,10 +84,15 @@ pub fn create_callbacks() -> RemoteCallbacks<'static> {
     let attempt = Cell::new(0);
 
     callbacks.credentials(move |url, username_from_url, allowed_types| {
+        // Heuristic to check for local file paths, which don't need credentials.
+        if !url.contains("://") && !url.contains('@') {
+            return Err(Error::from_str("No credentials for local file path"));
+        }
+
         let count = attempt.get();
         attempt.set(count + 1);
 
-        // Stop the infinite loop if we've tried agent, disk keys, and failed.
+        // Stop the infinite loop if we've tried agent and disk keys, and failed.
         if count > 2 {
             return Err(Error::from_str(
                 "Authentication failed: tried agent and default SSH keys.",

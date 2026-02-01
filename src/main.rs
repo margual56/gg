@@ -158,7 +158,7 @@ fn run(cli: Cli) -> Result<(), Error> {
             })?;
         }
         Commands::Done { no_clean } => {
-            done(&repo, no_clean)?;
+            done(&repo, no_clean, true)?;
         }
         Commands::Creds {
             name,
