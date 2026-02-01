@@ -153,8 +153,18 @@ fn run(cli: Cli) -> Result<(), Error> {
 
             show_progress("Pushing", || {
                 let head = repo.head()?;
-                let branch_name = head.shorthand().unwrap_or("HEAD");
-                push(&repo, "origin", branch_name, true)
+
+                // Ensure we are actually on a branch
+                if !head.is_branch() {
+                    // Try to find which branch this commit belongs to, or default to main
+                    // For now, it's safer to fail and ask the user to checkout main.
+                    return Err(Error::from_str(
+                        "You are in a detached HEAD state. Run 'git checkout main' first.",
+                    ));
+                }
+
+                let branch_name = head.shorthand().unwrap_or("main");
+                push(&repo, "origin", branch_name, amend)
             })?;
         }
         Commands::Done { no_clean } => {

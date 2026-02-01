@@ -68,16 +68,21 @@ pub fn push(
     branch_name: &str,
     force: bool,
 ) -> Result<(), Error> {
+    // Safety check: Never try to push a literal "HEAD" refspec
+    if branch_name == "HEAD" {
+        return Err(Error::from_str(
+            "Cannot push 'HEAD'. You must be on a named branch.",
+        ));
+    }
+
     if !has_remote(repo, remote_name) {
         return Ok(());
     }
 
     let mut remote = repo.find_remote(remote_name)?;
-
     let mut push_opts = PushOptions::new();
     push_opts.remote_callbacks(create_callbacks());
 
-    // In Git, prepending a '+' to the refspec indicates a force push.
     let prefix = if force { "+" } else { "" };
     let refspec = format!("{prefix}refs/heads/{branch_name}:refs/heads/{branch_name}");
 
